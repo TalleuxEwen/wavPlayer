@@ -22,6 +22,10 @@ git clone git@github.com:TalleuxEwen/wavPlayer.git
 ./wavPlayer [file.wav]
 ```
 
+## Screenshot
+
+![screenshot](./assets/img.png)
+
 ## Author
 
 [👤 **Ewen Talleux**](https://github.com/TalleuxEwen)
