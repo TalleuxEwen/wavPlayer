@@ -20,6 +20,19 @@ std::string displayTime(int seconds)
     return result;
 }
 
+void printingThread(AudioEngine *engine)
+{
+    std::cout << displayTime(0) << " / " << displayTime((engine->_audioFile->getHeader()->DataBlockSize / 4) / engine->sampleRate) << std::endl;
+    engine->printWaveform(engine->_audioFile->getBuffers(), engine->bufferFrames, 0, engine->_audioFile->_nbOfBuffers);
+
+    while (!engine->isFinished()) {
+        std::cout << "\r\033[22A" << displayTime(engine->_audioFile->_nbReadBuffers * engine->bufferFrames / engine->sampleRate) << " / " << displayTime((engine->_audioFile->getHeader()->DataBlockSize / 4) / engine->sampleRate) << std::endl;
+        std::cout << std::flush;
+        engine->printWaveform(engine->_audioFile->getBuffers(), engine->bufferFrames, engine->_audioFile->_nbReadBuffers, engine->_audioFile->_nbOfBuffers);
+        std::cout << std::flush;
+    }
+}
+
 AudioEngine::AudioEngine(std::shared_ptr<AudioFile> audioFile) : _audioFile(std::move(audioFile))
 {
     std::cout << "Audio API used: " << adc.getCurrentApi() << std::endl;
@@ -36,6 +49,7 @@ AudioEngine::~AudioEngine() {
     if (adc.isStreamOpen()) {
         adc.closeStream();
     }
+    pthread_join(_thread, nullptr);
 }
 
 void AudioEngine::stop() {
@@ -59,8 +73,6 @@ int AudioEngine::callback(void *outputBuffer, void *inputBuffer, unsigned int nB
     for (unsigned int i = 0; i < nBufferFrames * 2; i++) {
         ((short *)outputBuffer)[i] = result[i];
     }
-    std::cout << "\r\033[1A" << displayTime(engine->_audioFile->_nbReadBuffers * nBufferFrames / engine->sampleRate) << " / " << displayTime((engine->_audioFile->getHeader()->DataBlockSize / 4) / engine->sampleRate) << std::endl;
-    std::cout << std::flush;
     return 0;
 }
 
@@ -73,10 +85,105 @@ void AudioEngine::start() {
         adc.openStream(&outputParams, nullptr, RTAUDIO_SINT16, sampleRate, &bufferFrames, &callback, this, &options);
         adc.startStream();
         std::cout << "The file last " << (_audioFile->getHeader()->DataBlockSize / 4) / sampleRate << " seconds" << std::endl;
-        std::cout << displayTime(0) << " / " << displayTime((_audioFile->getHeader()->DataBlockSize / 4) / sampleRate) << std::endl;
+        pthread_create(&_thread, nullptr, (void *(*)(void *))printingThread, this);
     } catch (...) {
         std::cout << "Error starting audio stream" << std::endl;
         exit(1);
     }
 }
 
+void AudioEngine::printWaveform(short **buffers, unsigned int nBufferFrames, int index, int nbTotalBuffers) {
+    char **waveform = new char *[21];
+    for (int i = 0; i < 21; i++) {
+        waveform[i] = new char[41];
+        for (int j = 0; j < 41; j++) {
+            waveform[i][j] = ' ';
+        }
+    }
+    int toFill = 20 - index;
+    int toFillEnd = nbTotalBuffers - index;
+
+    if (toFill < 0) {
+        toFill = 0;
+    }
+    if (toFillEnd < 20) {
+        toFillEnd = 20;
+    }
+    for (int i = 0; i < 21; i++) {
+        for (int j = 0; j < 41; j++) {
+            if (j < toFill) {
+                waveform[i][j] = ' ';
+            } else if (j > toFillEnd) {
+                waveform[i][j] = ' ';
+            } else
+            {
+                int valueLeft = normalizeBetween0And10(getMaxValue(buffers[index + (j - 20)], nBufferFrames, true));
+            int valueRight = normalizeBetween0And10(getMaxValue(buffers[index + (j - 20)], nBufferFrames, false));
+                if (i < 10) {
+                    waveform[i][j] = valueLeft >= 10 - i ? '*' : ' ';
+                }
+                if (i > 10) {
+                    waveform[i][j] = valueRight >= i - 10 ? '*' : ' ';
+                }
+
+            }
+            if (j == 20) {
+                waveform[i][j] = '|';
+            }
+            if (i == 10) {
+                waveform[i][j] = '-';
+            }
+        }
+    }
+    std::ostringstream color;
+    for (int i = 0; i < 21; i++) {
+        for (int j = 0; j < 41; j++) {
+            if (waveform[i][j] == '*') {
+                if (i < 10) {
+                    color << _colors[i];
+                    std::cout << color.str() << "█" << "\033[0m";
+                } else if (i > 10) {
+                    color << _colors[i - 1];
+                    std::cout << color.str() << "█" << "\033[0m";
+                }
+            } else {
+                std::cout << waveform[i][j];
+            }
+        }
+        std::cout << std::endl;
+    }
+
+    //free memory
+    for (int i = 0; i < 21; i++) {
+        delete[] waveform[i];
+    }
+    delete[] waveform;
+}
+
+int AudioEngine::getMaxValue(short *buffer, unsigned int nBufferFrames, bool left) {
+    int max = 0;
+    if (buffer == nullptr) {
+        return 0;
+    }
+    for (unsigned int i = 0; i < nBufferFrames; i++) {
+        if (left) {
+            if (i % 2 == 0) {
+                if (buffer[i] > max) {
+                    max = buffer[i];
+                }
+            }
+        } else {
+            if (i % 2 != 0) {
+                if (buffer[i] > max) {
+                    max = buffer[i];
+                }
+            }
+        }
+    }
+    return max;
+}
+
+int AudioEngine::normalizeBetween0And10(int value)
+{
+    return value / 32767.0 * 10;
+}
