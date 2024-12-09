@@ -26,6 +26,10 @@ git clone git@github.com:TalleuxEwen/wavPlayer.git
 
 ![screenshot](./assets/img.png)
 
+## Demo
+
+https://github.com/user-attachments/assets/c09a718a-90d3-42ca-bd14-6d6abaec4bfc
+
 ## Author
 
 [👤 **Ewen Talleux**](https://github.com/TalleuxEwen)
